@@ -5,7 +5,7 @@ import pandas as pd
 from os.path import join
 from gmt_reader import GMT
 
-reactome_base_dir = './reactome/'
+reactome_base_dir = './paper_data/pathways/Reactome/'
 relations_file_name = 'ReactomePathwaysRelation.txt'
 pathway_names = 'ReactomePathways.txt'
 pathway_genes = 'ReactomePathways.gmt'
@@ -132,8 +132,8 @@ class ReactomeNetwork():
 
         return G
 
-    def get_completed_network(self, n_levels):
-        G = complete_network(self.netx, n_leveles=n_levels)
+    def get_completed_network(self):
+        G = complete_network(self.netx, self.n_levels)
         return G
 
     def get_completed_tree(self, n_levels):
@@ -142,24 +142,34 @@ class ReactomeNetwork():
         return G
     
     def get_pathway_masks(self, pathways_of_interest=list()) :
-        adj_matrix = nx.adjacency_matrix(self.netx)
+        net = self.get_completed_network()
+        
+        adj_matrix = nx.adjacency_matrix(net)
         # Convert to a pandas DataFrame
-        df_adj_matrix = pd.DataFrame(adj_matrix.toarray(), index=self.netx.nodes(), columns=self.netx.nodes())
+        df_adj_matrix = pd.DataFrame(adj_matrix.toarray(), index=net.nodes(), columns=net.nodes())
 
         pathway_masks = []
         pathways_of_interest = list(pathways_of_interest)
         for i in range(1,self.n_levels) : 
             if pathways_of_interest :
-                root_level_genes  = list(set(get_nodes_at_level(self.netx , i))   & set(pathways_of_interest))
-                upper_level_genes = list(set(get_nodes_at_level(self.netx , i+1)) & set(pathways_of_interest))
-                pathway_masks.append(df_adj_matrix.loc[root_level_genes,upper_level_genes])
+                root_level_genes  = list(set(get_nodes_at_level(net , i))   & set(pathways_of_interest))
+                upper_level_genes = list(set(get_nodes_at_level(net , i+1)) & set(pathways_of_interest))
+                mask = df_adj_matrix.loc[root_level_genes,upper_level_genes]
+                mask.index   = [re.sub('_copy.*', '', p) for p in mask.index]
+                mask.columns = [re.sub('_copy.*', '', p) for p in mask.columns]
+                pathway_masks.append(mask)
             else : 
-                pathway_masks.append(df_adj_matrix.loc[get_nodes_at_level(self.netx , i) , get_nodes_at_level(self.netx , i+1)])
+                mask = df_adj_matrix.loc[get_nodes_at_level(net , i) , get_nodes_at_level(net , i+1)]
+                mask.index   = [re.sub('_copy.*', '', p) for p in mask.index]
+                mask.columns = [re.sub('_copy.*', '', p) for p in mask.columns]
+                pathway_masks.append(mask)
              
+        
         return pathway_masks
     
     def get_gene_mask(self) : 
-        df = self.reactome.pathway_genes
+        df  = self.reactome.pathway_genes
+        net = self.get_completed_network()
         
         df['value'] = 1
         gene_mask = pd.pivot_table(df, values='value', index='gene', columns='group', aggfunc="sum")
@@ -168,15 +178,25 @@ class ReactomeNetwork():
         cols_df = pd.DataFrame(index=self.genes_of_interest)
         gene_mask = cols_df.merge(gene_mask, right_index=True, left_index=True, how='left')
         gene_mask = gene_mask.fillna(0)
+        
+        terminal_nodes = [re.sub('_copy.*', '', n) for n, d in net.out_degree() if d == 0]  
+
+        missing_pathways    = list(set(terminal_nodes) - set(gene_mask.columns))
+        missing_pathways_df = pd.DataFrame(np.zeros((len(gene_mask.index) , len(missing_pathways))) , index=gene_mask.index , columns=missing_pathways)
+
+        gene_mask = pd.concat([gene_mask , missing_pathways_df] , axis=1)
 
         self.pathways_of_interest = gene_mask.columns
         
         return gene_mask
     
-    def get_masks(self) : 
+    def get_masks(self , filter_pathways=False) : 
         gene_mask = self.get_gene_mask()
-        gene_mask = gene_mask.loc[:, (gene_mask != 0).any(axis=0)]
-        pathway_masks = [mask.T for mask in self.get_pathway_masks(gene_mask.columns)]
+        if filter_pathways : 
+            gene_mask = gene_mask.loc[:, (gene_mask != 0).any(axis=0)]
+            pathway_masks = [mask.T for mask in self.get_pathway_masks(gene_mask.columns)]
+        else : 
+            pathway_masks = [mask.T for mask in self.get_pathway_masks()]
         gene_mask = gene_mask.loc[: , pathway_masks[-1].index]
         pathway_masks = [mask.values for mask in pathway_masks]
         

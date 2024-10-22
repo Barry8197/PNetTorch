@@ -12,7 +12,6 @@ from scipy.stats import zscore
 import sys
 sys.path.insert(0 , '.')
 
-
 class MaskedLinear(nn.Module):
     r"""Applies an affine linear transformation to the incoming data: :math:`y = xA^T + b`.
 
@@ -81,6 +80,8 @@ class MaskedLinear(nn.Module):
             self.register_parameter("bias", None)
         self.reset_parameters()
         self.mask_weights_init()
+        #self.weight = nn.Parameter(self.to_sparse(self.weight))
+        #self.mask   = nn.Parameter(self.to_sparse(self.mask))
 
     def reset_parameters(self) -> None:
         # Setting a=sqrt(5) in kaiming_uniform is the same as initializing with
@@ -101,9 +102,18 @@ class MaskedLinear(nn.Module):
             self.weight.data = self.mask * scaling_factor
         else:
             self.weight.data = self.mask 
+            
+    def to_sparse(self, tensor):
+        """ Convert a dense tensor to a sparse tensor. """
+        tensor = tensor.detach()  # Remove from computation graph if needed
+        non_zero_indices = tensor.nonzero(as_tuple=False)
+        non_zero_values = tensor[non_zero_indices[:, 0], non_zero_indices[:, 1]]
+        sparse_tensor = torch.sparse_coo_tensor(non_zero_indices.t(), non_zero_values, tensor.size())
+        return sparse_tensor
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         return F.linear(input, self.weight * self.mask, self.bias)
+        #return torch.sparse.mm(input , (self.weight*self.mask).T) + self.bias
 
     def extra_repr(self) -> str:
         return f"in_features={self.in_features}, out_features={self.out_features}, bias={self.bias is not None}"
@@ -130,18 +140,18 @@ class PNET(nn.Module):
         
         self.layers.append(nn.Linear(in_features = self.input_dim , out_features = gene_masks.shape[0]))
         
-        for i in range(0, len(pathway_masks)):
+        for i in range(0, len(pathway_masks)+1):
             if i ==0 : 
                 # Add gene layer first:
                 self.layers.append(MaskedLinear(gene_masks , in_features=gene_masks.shape[0],out_features=pathway_masks[i].shape[0]))
                 self.skip.append(nn.Linear(in_features=gene_masks.shape[0],out_features=self.output_dim))
             else :
                 # Add pathway layers:
-                self.layers.append(MaskedLinear(pathway_masks[i-1] , in_features=pathway_masks[i-1].shape[0],out_features=pathway_masks[i].shape[0]))
+                self.layers.append(MaskedLinear(pathway_masks[i-1] , in_features=pathway_masks[i-1].shape[0],out_features=pathway_masks[i-1].shape[1]))
                 self.skip.append(nn.Linear(in_features=pathway_masks[i-1].shape[0],out_features=self.output_dim))
                 
         # Add final prediction layer:
-        self.skip.append(nn.Linear(in_features=pathway_masks[len(pathway_masks) - 1].shape[0], out_features=self.output_dim))
+        self.skip.append(nn.Linear(in_features=pathway_masks[-1].shape[1], out_features=self.output_dim))
 
     def forward(self, x):
         y = 0
