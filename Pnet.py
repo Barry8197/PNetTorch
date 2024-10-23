@@ -120,15 +120,15 @@ class MaskedLinear(nn.Module):
 
 
 class PNET(nn.Module):
-    def __init__(self, reactome_network, input_dim =None ,  output_dim=None, fcnn=False):
+    def __init__(self, reactome_network, input_dim =None ,  output_dim=None, fcnn=False , activation = nn.ReLU , dropout=0.1 , filter_pathways=False, input_layer_mask = None):
         super().__init__()
         self.reactome_network = reactome_network
         self.output_dim = output_dim
         self.input_dim = input_dim
-        self.activation = nn.ReLU()
-        self.dropout = nn.Dropout(p=0.1)
+        self.activation = activation
+        self.dropout = nn.Dropout(p=dropout)
         
-        gene_masks, pathway_masks = self.reactome_network.get_masks()
+        gene_masks, pathway_masks, self.layer_info = self.reactome_network.get_masks(filter_pathways)
                 
         if fcnn:
             gene_masks = [np.ones_like(gm) for gm in gene_masks]
@@ -138,7 +138,10 @@ class PNET(nn.Module):
         self.layers = nn.ModuleList()
         self.skip = nn.ModuleList()
         
-        self.layers.append(nn.Linear(in_features = self.input_dim , out_features = gene_masks.shape[0]))
+        if input_layer_mask is None : 
+            self.layers.append(nn.Linear(in_features = self.input_dim , out_features = gene_masks.shape[0]))
+        else : 
+            self.layers.append(MaskedLinear(input_layer_mask , in_features=self.input_dim, out_features=gene_masks.shape[0]))
         
         for i in range(0, len(pathway_masks)+1):
             if i ==0 : 
@@ -158,7 +161,7 @@ class PNET(nn.Module):
         
         # Iterate through all other pathway layers
         for layer, skip in zip(self.layers, self.skip):
-            x =  layer(x) # Initial Input Linear Layer
+            x =  layer(x)
             y += skip(x)
             
         # Average over output
@@ -166,56 +169,64 @@ class PNET(nn.Module):
         
         return y
 
-    def deepLIFT(self, test_dataset, target_class=0):
+    def deepLIFT_feature_importance(self, test_dataset, target_class=0):
         self.interpret_flag=True
         dl = captum.attr.DeepLift(self)
-        gene_importances = dl.attribute((test_dataset.x), target=target_class)
-        gene_importances = pd.DataFrame(gene_importances.detach().numpy(),
-                                        index=test_dataset.input_df.index,
-                                        columns=test_dataset.input_df.columns)
+        feature_importances = dl.attribute((test_dataset), target=target_class)
+        if hasattr(self, 'data_index') : 
+            data_index = self.data_index
+        else : 
+            data_index = np.arange(test_dataset.shape[0])
+        feature_importances = pd.DataFrame(feature_importances.detach().cpu().numpy(),
+                                        index=data_index,
+                                        columns=self.features)
         
-        self.gene_importances = gene_importances
+        self.feature_importances = feature_importances
         self.interpret_flag=False
-        return self.gene_importances
+        return self.feature_importances
     
-    def integrated_gradients(self, test_dataset, target_class=0 , task='Classification'):
+    def integrated_gradients_feature_importance(self, test_dataset, target_class=0 , task='Classification'):
         self.interpret_flag=True
         ig = captum.attr.IntegratedGradients(self)
         
-        if task == 'REG':
-            ig_attr = ig.attribute((test_dataset.x, test_dataset.additional), n_steps=50)
+        if task == 'Regression':
+            ig_attr = ig.attribute(test_dataset, n_steps=50)
         else:
-            ig_attr, delta = ig.attribute((test_dataset.x, test_dataset.additional), return_convergence_delta=True, target=target_class)
-        gene_importances, additional_importances = ig_attr
-        gene_importances = pd.DataFrame(gene_importances.detach().numpy(),
-                                        index=test_dataset.input_df.index,
-                                        columns=test_dataset.input_df.columns)
-        additional_importances = pd.DataFrame(additional_importances.detach().numpy(),
-                                              index=test_dataset.additional_data.index,
-                                              columns=test_dataset.additional_data.columns)
-        self.gene_importances, self.additional_importances = gene_importances, additional_importances
+            ig_attr, delta = ig.attribute(test_dataset, return_convergence_delta=True, target=target_class)
+            
+        feature_importances = ig_attr
+        
+        if hasattr(self, 'data_index') : 
+            data_index = self.data_index
+        else : 
+            data_index = np.arange(test_dataset.shape[0])
+            
+        feature_importances = pd.DataFrame(feature_importances.detach().cpu().numpy(),
+                                            index=data_index,
+                                            columns=self.features)
+        
+        self.feature_importances = feature_importances
         self.interpret_flag=False
-        return self.gene_importances, self.additional_importances
+        
+        return self.feature_importances
 
     def layerwise_importance(self, test_dataset, target_class=0):
         self.interpret_flag=True
         layer_importance_scores = []
-        cond = captum.attr.LayerConductance(self, self.first_gene_layer)  # ReLU output of masked layer at each level
-        cond_vals = cond.attribute((test_dataset.x, test_dataset.additional), target=target_class)
-        cols = [self.reactome_network.pathway_encoding.set_index('ID').loc[col]['pathway'] for col in self.reactome_network.pathway_layers[0].index]
-        cond_vals_genomic = pd.DataFrame(cond_vals.detach().numpy(),
-                                         columns=cols,
-                                         index=test_dataset.input_df.index)
-        pathway_imp_by_target = cond_vals_genomic
-        layer_importance_scores.append(pathway_imp_by_target)
         
         for i, level in enumerate(self.layers):
-            cond = captum.attr.LayerConductance(self, level.pathway_layer)  # ReLU output of masked layer at each level
-            cond_vals = cond.attribute((test_dataset.x, test_dataset.additional), target=target_class)
-            cols = [self.reactome_network.pathway_encoding.set_index('ID').loc[col]['pathway'] for col in self.reactome_network.pathway_layers[i].columns]
-            cond_vals_genomic = pd.DataFrame(cond_vals.detach().numpy(),
+            print(level)
+            cond = captum.attr.LayerConductance(self, level)  # ReLU output of masked layer at each level
+            cond_vals = cond.attribute(test_dataset, target=target_class)
+            cols = self.layer_info[i]
+            if hasattr(self, 'data_index') : 
+                data_index = self.data_index
+            else : 
+                data_index = np.arange(test_dataset.shape[0])
+                
+            cond_vals_genomic = pd.DataFrame(cond_vals.detach().cpu().numpy(),
                                              columns=cols,
-                                             index=test_dataset.input_df.index)
+                                             index=data_index)
             pathway_imp_by_target = cond_vals_genomic
             layer_importance_scores.append(pathway_imp_by_target)
         self.interpret_flag=False
@@ -224,172 +235,23 @@ class PNET(nn.Module):
     def layerwise_activation(self, test_dataset, target_class=0):
         self.interpret_flag=True
         layer_importance_scores = []
-        for i, level in enumerate(self.layers):
-            act = captum.attr.LayerActivation(self, level.pathway_layer)
-            act_vals = act.attribute((test_dataset.x, test_dataset.additional), attribute_to_layer_input=True)
-            cols = [self.reactome_network.pathway_encoding.set_index('ID').loc[col]['pathway'] for col in self.reactome_network.pathway_layers[i].index]
-            act_vals_genomic = pd.DataFrame(act_vals.detach().numpy(),
+        
+        for i, level in enumerate(self.layers[1:]):
+            act = captum.attr.LayerActivation(self, level)
+            act_vals = act.attribute(test_dataset, attribute_to_layer_input=True)
+            
+            cols = self.layer_info[i]
+            if hasattr(self, 'data_index') : 
+                data_index = self.data_index
+            else : 
+                data_index = np.arange(test_dataset.shape[0])
+                
+            act_vals_genomic = pd.DataFrame(act_vals.detach().cpu().numpy(),
                                             columns=cols,
-                                            index=test_dataset.input_df.index)
+                                            index=data_index)
+            
             pathway_imp_by_target = act_vals_genomic
             layer_importance_scores.append(pathway_imp_by_target)
+            
         self.interpret_flag=False
         return layer_importance_scores
-    
-    def neuron_conductance(self, test_dataset, target_class=0):
-        self.interpret_flag=True
-        layer_importance_scores = []
-        for i, level in enumerate(self.layers):
-            neuron_cond = captum.attr.NeuronConductance(self, level.pathway_layer)
-            neuron_cond_att = neuron_cond.attribute((test_dataset.x, test_dataset.additional), target=target_class)
-            
-        self.interpret_flag=False    
-    
-    def gene_importance(self, test_dataset, target_class=0):
-        self.interpret_flag=True
-        cond = captum.attr.LayerConductance(self, self.input_layer)
-        cond_vals = cond.attribute((test_dataset.x, test_dataset.additional), target=target_class)
-        cols = self.reactome_network.gene_list
-        cond_vals_genomic = pd.DataFrame(cond_vals.detach().numpy(),
-                                         columns=cols,
-                                         index=test_dataset.input_df.index)
-        gene_imp_by_target = cond_vals_genomic
-        self.interpret_flag=False
-        return gene_imp_by_target
-    
-    def regulatory_layer_importance(self, test_dataset, target_class=0):
-        self.interpret_flag=True
-        cond = captum.attr.LayerConductance(self, self.regulatory_layer.regulatory_layer)
-        cond_vals = cond.attribute((test_dataset.x, test_dataset.additional), target=target_class)
-        cols = self.reactome_network.gene_list
-        cond_vals_genomic = pd.DataFrame(cond_vals.detach().numpy(),
-                                         columns=cols,
-                                         index=test_dataset.input_df.index)
-        gene_imp_by_target = cond_vals_genomic
-        self.interpret_flag=False
-        return gene_imp_by_target
-    
-    def interpret(self, test_dataset, plot=False):
-        gene_feature_importances, additional_feature_importances = self.integrated_gradients(test_dataset)
-        gene_importances = self.gene_importance(test_dataset)
-        # layer_importance_scores = self.layerwise_importance(test_dataset)
-        if self.regulatory_flag == True:
-            regulatory_importances = self.regulatory_layer_importance(test_dataset)
-
-        layer_importance_scores = self.layerwise_importance(test_dataset)
-        
-        gene_order = gene_importances.mean().sort_values(ascending=True).index
-        if plot:
-            plt.rcParams["figure.figsize"] = (6,8)
-            gene_importances[list(gene_order[-20:])].plot(kind='box', vert=False)
-            plt.savefig(plot+'/imp_genes.pdf')
-        self.interpret_flag=False
-        if self.regulatory_flag == True:
-            return gene_feature_importances, additional_feature_importances, gene_importances, layer_importance_scores, regulatory_importances
-        else: 
-            return gene_feature_importances, additional_feature_importances, gene_importances, layer_importance_scores,
-
-    def interpret(self, test_dataset, plot=False):
-        gene_feature_importances, additional_feature_importances = self.integrated_gradients(test_dataset)
-        gene_importances = self.gene_importance(test_dataset)
-        # layer_importance_scores = self.layerwise_importance(test_dataset)
-        layer_importance_scores = self.layerwise_importance(test_dataset)
-        
-        gene_order = gene_importances.mean().sort_values(ascending=True).index
-        if plot:
-            plt.rcParams["figure.figsize"] = (6,8)
-            gene_importances[list(gene_order[-20:])].plot(kind='box', vert=False)
-            plt.savefig(plot+'/imp_genes.pdf')
-        self.interpret_flag=False            
-        return gene_feature_importances, additional_feature_importances, gene_importances, layer_importance_scores
-
-def evaluate_interpret_save(model, test_dataset, path):
-    if not os.path.exists(path):
-        os.makedirs(path)
-    x_test = test_dataset.x
-    additional_test = test_dataset.additional
-    y_test = test_dataset.y
-    model.to('cpu')
-    if model.task=='BC' or model.task=='MC':
-        pred_proba = model.predict_proba(x_test, additional_test).detach()
-        pred = model.predict(x_test, additional_test).detach()
-        auc_score = util.get_auc(pred_proba, y_test, save=path+'/auc_curve.pdf')
-        auc_prc = util.get_auc_prc(pred_proba, y_test)
-        f1_score = util.get_f1(pred, y_test)
-        
-    
-        torch.save(pred_proba, path+'/prediction_probabilities.pt')
-        torch.save(auc_score, path+'/AUC.pt')
-        torch.save(auc_prc, path+'/AUC_PRC.pt')
-        torch.save(f1_score, path+'/F1.pt')
-        
-    gene_feature_importances, additional_feature_importances, gene_importances, layer_importance_scores = model.interpret(test_dataset)
-    gene_feature_importances.to_csv(path+'/gene_feature_importances.csv')
-    additional_feature_importances.to_csv(path+'/additional_feature_importances.csv')
-    gene_importances.to_csv(path+'/gene_importances.csv')
-    for i, layer in enumerate(layer_importance_scores):
-        layer.to_csv(path+'/layer_{}_importances.csv'.format(i))
-
-def interpret(model, x, additional,  plots=False, savedir=''):
-    '''
-    Function to use DeepLift from Captum on PNET model structure. Generates overall feature importance and layerwise
-    results.
-    :param model: NN model to predict feature importance on. Assuming PNET structure
-    :param data: PnetDataset; data object with samples to use gradients on.
-    :return:
-    '''
-    if plots:
-        if savedir:
-            if not os.path.exists(savedir):
-                os.makedirs(savedir)
-        else:
-            savedir = os.getcwd()
-    feature_importance = dict()
-    # Overall feature importance
-    ig = IntegratedGradients(model)
-    ig_attr, delta = ig.attribute((x, additional), return_convergence_delta=True)
-    ig_attr_genomic, ig_attr_additional = ig_attr
-    feature_importance['overall_genomic'] = ig_attr_genomic.detach().numpy()
-    feature_importance['overall_clinical'] = ig_attr_additional.detach().numpy()
-    if plots:
-        visualize_importances(test_df.columns[:clinical_index],
-                              np.mean(feature_importance['overall_clinical'], axis=0),
-                              title="Average Feature Importances",
-                              axis_title="Clinical Features")
-        plt.savefig('/'.join([ savedir, 'feature_importance_overall_clinical.pdf']))
-
-        visualize_importances(test_df.columns[clinical_index:],
-                              np.mean(feature_importance['overall_genomic'], axis=0),
-                              title="Average Feature Importances",
-                              axis_title="Genomic Features")
-        plt.savefig('/'.join([savedir, 'feature_importance_overall_genomic.pdf']))
-
-    # Neurons feature importance
-    layer_importance_scores = []
-    for level in model.layers:
-        cond = LayerConductance(model, level.activation)       # ReLU output of masked layer at each level
-        cond_vals = cond.attribute((genomic_input, clinical_input))
-        cond_vals_genomic = cond_vals.detach().numpy()
-        layer_importance_scores.append(cond_vals_genomic)
-    feature_importance['layerwise_neurons_genomic'] = layer_importance_scores
-    if plots:
-        for i, layer in enumerate(feature_importance['layerwise_neurons_genomic']):
-            pathway_names = model.reactome_network.pathway_encoding.set_index('ID')
-            pathway_names = pathway_names.loc[model.reactome_network.pathway_layers[i+1].index]['pathway']
-            visualize_importances(pathway_names,
-                                  np.mean(layer, axis=0),
-                                  title="Neurons Feature Importances",
-                                  axis_title="Pathway activation Features")
-            plt.savefig('/'.join([savedir, 'pathway_neurons_layer_{}_importance.pdf'.format(i)]))
-
-    return feature_importance
-
-
-def visualize_importances(feature_names, importances, title="Average Feature Importances", plot=True, axis_title="Features"):
-    x_pos = (np.arange(len(feature_names)))
-    if plot:
-        plt.figure(figsize=(12,6))
-        plt.bar(x_pos, importances, align='center')
-        plt.xticks(x_pos, feature_names, rotation=90)
-        plt.xlabel(axis_title)
-        plt.title(title)

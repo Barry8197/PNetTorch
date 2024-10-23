@@ -197,7 +197,10 @@ class ReactomeNetwork():
             pathway_masks = [mask.T for mask in self.get_pathway_masks(gene_mask.columns)]
         else : 
             pathway_masks = [mask.T for mask in self.get_pathway_masks()]
+            
+        layer_info = [list(gene_mask.index)] + [list(mask.index) for mask in pathway_masks[::-1]] + [list(pathway_masks[0].columns)]
+        
         gene_mask = gene_mask.loc[: , pathway_masks[-1].index]
         pathway_masks = [mask.values for mask in pathway_masks]
         
-        return gene_mask.values , pathway_masks[::-1] 
+        return gene_mask.values, pathway_masks[::-1], layer_info
