@@ -3,7 +3,9 @@ import networkx as nx
 import numpy as np
 import pandas as pd
 from os.path import join
-from gmt_reader import GMT
+import sys
+sys.path.insert(0 , '.')
+from utils import GMT
 
 reactome_base_dir = './paper_data/pathways/Reactome/'
 relations_file_name = 'ReactomePathwaysRelation.txt'
