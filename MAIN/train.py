@@ -36,8 +36,8 @@ def train(model, input_arrray, labels, device, batch_size=64, learning_rate=0.01
     )
     
     # Converting numpy arrays to PyTorch tensors and moving them to the specified device
-    X_train = torch.tensor(X_train, dtype=torch.float32).to(device), y_train = torch.tensor(y_train).to(device)
-    X_test = torch.tensor(X_test, dtype=torch.float32).to(device), y_test = torch.tensor(y_test).to(device)
+    X_train, y_train = torch.tensor(X_train, dtype=torch.float32).to(device), y_train = torch.tensor(y_train).to(device)
+    X_test, y_test = torch.tensor(X_test, dtype=torch.float32).to(device), y_test = torch.tensor(y_test).to(device)
 
     # Creating training and testing datasets and loaders
     train_dataset = TensorDataset(X_train, y_train)
