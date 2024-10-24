@@ -30,9 +30,6 @@ class GMT():
         Returns:
             pd.DataFrame: A DataFrame with columns 'group' corresponding to the pathway and 'gene' corresponding to the gene.
         """
-        import re
-        import pandas as pd
-        
         data_dict_list = []
         with open(filename) as gmt:
             data_list = gmt.readlines()
@@ -58,8 +55,6 @@ class GMT():
         Returns:
             dict: A dictionary with pathways as keys and a list of genes as values.
         """
-        import os
-        
         data_dict = {}
         with open(os.path.join(os.getcwd(), filename)) as gmt:
             data_list = gmt.readlines()
@@ -86,4 +81,3 @@ class GMT():
                 lines.append(line)
             gmt.writelines(lines)
         return
-

@@ -52,7 +52,7 @@ class MaskedLinear(nn.Module):
         self.in_features = in_features
         self.out_features = out_features
         factory_kwargs = {'device': device, 'dtype': dtype}
-        self.mask = nn.Parameter(mask.T, requires_grad=False)
+        self.mask = nn.Parameter(torch.Tensor(mask.T), requires_grad=False)
         self.weight = nn.Parameter(torch.empty((out_features, in_features), **factory_kwargs))
         if bias:
             self.bias = nn.Parameter(torch.empty(out_features, **factory_kwargs))
@@ -132,7 +132,7 @@ class PNET(nn.Module):
         self.reactome_network = reactome_network
         self.output_dim = output_dim
         self.input_dim = input_dim
-        self.activation = activation()
+        self.activation = activation
         self.dropout = nn.Dropout(p=dropout)
         
         gene_masks, pathway_masks, self.layer_info = self.reactome_network.get_masks(filter_pathways)

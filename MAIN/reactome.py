@@ -12,6 +12,15 @@ relations_file_name = 'ReactomePathwaysRelation.txt'
 pathway_names = 'ReactomePathways.txt'
 pathway_genes = 'ReactomePathways.gmt'
 
+def get_nodes_at_level(net, distance):
+    # get all nodes within distance around the query node
+    nodes = set(nx.ego_graph(net, 'root', radius=distance))
+
+    # remove nodes that are not **at** the specified distance but closer
+    if distance >= 1.:
+        nodes -= set(nx.ego_graph(net, 'root', radius=distance - 1))
+
+    return list(nodes)
 
 def add_edges(G, node, n_levels):
     """
@@ -83,8 +92,7 @@ def complete_network(G, n_leveles=4):
         >>> completed_G = complete_network(G, n_leveles=5)
         This modifies the graph by potentially adding additional nodes and edges to ensure that 
         each path from 'root' reaches a total depth of 5.
-    """
-    
+    """ 
     sub_graph = nx.ego_graph(G, 'root', radius=n_leveles)
     terminal_nodes = [n for n, d in sub_graph.out_degree() if d == 0]
     distances = [len(nx.shortest_path(G, source='root', target=node)) for node in terminal_nodes]
