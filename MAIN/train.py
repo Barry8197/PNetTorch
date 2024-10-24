@@ -9,7 +9,7 @@ import seaborn as sns
 from tqdm import tqdm
 import numpy as np
 
-def train(model, input_arrray, labels, device, batch_size=64, learning_rate=0.01, lr_decay=0.1, num_epochs=10, sparse=False):
+def train(model, input_arrray, labels, device, batch_size=64, learning_rate=0.01, lr_decay=0.5, num_epochs=10, sparse=False):
     """
     Trains a given model with specified parameters and data.
 
@@ -50,7 +50,7 @@ def train(model, input_arrray, labels, device, batch_size=64, learning_rate=0.01
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.SGD(model.parameters(), lr=learning_rate) if sparse else \
                 optim.Adam(model.parameters(), lr=learning_rate, weight_decay=1e-4)
-    lr_scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=lr_decay)
+    lr_scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=lr_decay)
 
     # Training the model
     model.to(device)
@@ -65,7 +65,7 @@ def train(model, input_arrray, labels, device, batch_size=64, learning_rate=0.01
                 outputs = model(data)
                 
                 # Ensuring the target tensor type matches the expected by criterion
-                loss = criterion(outputs, targets.long())
+                loss = criterion(outputs, targets.float())
                 loss.backward()
                 optimizer.step()
                 

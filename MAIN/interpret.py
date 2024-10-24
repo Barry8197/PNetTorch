@@ -69,9 +69,9 @@ def interpret(model, x, savedir=''):
     if save_plots:
         for name, fig in model_layers_importance_fig.items():
             # Ensure filename does not have any spaces and is properly formatted
-            filename = name.replace(' ', '_') + '.jpeg'
+            filename = name.replace(' ', '_')
             fig_path = os.path.join(savedir, filename)
-            fig.savefig(fig_path)
+            fig.savefig(fig_path, bbox_inches='tight')
 
     return model_layers_importance
 
@@ -101,13 +101,13 @@ def evaluate_interpret_save(model, test_dataset, path):
     test_targets = torch.cat(target_batches, dim=0)
     
     # Getting predictions and probabilities from the model
-    actuals, predictions = get_predictions(model, test_data)
-    actuals, probs = get_probabilities(model, test_data)
+    actuals, predictions = get_predictions(model, test_dataset)
+    actuals, probs = get_probabilities(model, test_dataset)
 
     # Compute the Confusion Matrix and save it
     cm = plot_confusion_matrix(actuals, predictions)
     cm_path = os.path.join(path, 'Confusion_Matrix.jpeg')
-    cm.savefig(cm_path)
+    cm.savefig(cm_path, bbox_inches='tight')
 
     # Computing AUC-ROC metrics and save the ROC Curve plot
     auc = roc_auc_score(actuals, probs)
@@ -116,7 +116,7 @@ def evaluate_interpret_save(model, test_dataset, path):
 
     roc = plot_roc_curve(fpr, tpr, auc)
     roc_path = os.path.join(path, 'ROC_Curve.jpeg')
-    roc.savefig(roc_path)
+    roc.savefig(roc_path, bbox_inches='tight')
     
     # Save prediction probabilities and predictions
     torch.save(probs, os.path.join(path, 'prediction_probabilities.pt'))
@@ -127,5 +127,6 @@ def evaluate_interpret_save(model, test_dataset, path):
     
     for name, importance in model_importances.items():
         # Save each layer's importances as a CSV file
-        csv_path = os.path.join(path, f'layer_{name}_importances.csv')
+        filename = name.replace(' ', '_')
+        csv_path = os.path.join(path, f'{filename}.csv')
         importance.to_csv(csv_path)
