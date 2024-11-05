@@ -28,7 +28,7 @@ class MaskedLinear(nn.Module):
         dtype (torch.dtype): The desired data type of the parameters. Defaults to None, which means use the default data type.
 
     Shapes:
-        - Input: :math:`(*, H_{in})` where :math:`*` means any number of additional dimensions and :math:`H_{in} = \text{in\_features}`.
+        - Input: :math:`(*, H_{in})` where :math:`*` means any number of additional dimensions and :math:`H_{in} = \\text{in\\_features}`.
         - Output: :math:`(*, H_{out})` where all but the last dimension are the same shape as the input.
 
     Attributes:
@@ -126,7 +126,7 @@ class PNET(nn.Module):
     """
     def __init__(
         self, reactome_network, input_dim=None, output_dim=None, 
-        fcnn=False, activation=nn.ReLU, dropout=0.1, 
+        fcnn=False, activation=nn.ReLU(), dropout=0.1, 
         filter_pathways=False, input_layer_mask=None):
         super().__init__()
         self.reactome_network = reactome_network
@@ -143,11 +143,13 @@ class PNET(nn.Module):
         
         self.layers = nn.ModuleList()
         self.skip = nn.ModuleList()
+        self.act_layers = nn.ModuleList()
         
         if input_layer_mask is None:
             self.layers.append(nn.Linear(in_features=self.input_dim, out_features=gene_masks.shape[0]))
         else:
             self.layers.append(MaskedLinear(input_layer_mask, in_features=self.input_dim, out_features=gene_masks.shape[0]))
+        self.act_layers.append(self.activation())
 
         for i in range(0, len(pathway_masks) + 1):
             if i == 0:
@@ -156,6 +158,8 @@ class PNET(nn.Module):
             else:
                 self.layers.append(MaskedLinear(pathway_masks[i-1], in_features=pathway_masks[i-1].shape[0], out_features=pathway_masks[i-1].shape[1]))
                 self.skip.append(nn.Linear(in_features=pathway_masks[i-1].shape[0], out_features=self.output_dim))
+                
+            self.act_layers.append(self.activation())
                 
         self.skip.append(nn.Linear(in_features=pathway_masks[-1].shape[1], out_features=self.output_dim))
 
@@ -171,9 +175,10 @@ class PNET(nn.Module):
             torch.Tensor: The output tensor after processing through the PNET.
         """
         y = 0
-        for layer, skip in zip(self.layers, self.skip):
-            x = layer(x)
-            y += skip(x)
+        for layer, act, skip in zip(self.layers, self.act_layers, self.skip):
+            x =  layer(x)
+            x =  self.dropout(act(x))
+            y += self.dropout(skip(x))
             
         y = y / len(self.layers)
         

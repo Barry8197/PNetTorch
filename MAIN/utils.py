@@ -1,6 +1,8 @@
 import os
 import re
 import pandas as pd
+import numpy as np
+import torch
 
 # data_dir = os.path.dirname(__file__)
 class GMT():
@@ -81,3 +83,16 @@ class GMT():
                 lines.append(line)
             gmt.writelines(lines)
         return
+    
+def numpy_array_to_one_hot(numpy_array, num_classes=None):
+    if num_classes is None:
+        num_classes = numpy_array.max() + 1
+    return np.eye(num_classes)[numpy_array]
+
+
+def get_gpu_memory():
+    t = torch.cuda.get_device_properties(0).total_memory*(1*10**-9)             
+    r = torch.cuda.memory_reserved(0)*(1*10**-9)
+    a = torch.cuda.memory_allocated(0)*(1*10**-9)
+    
+    return print("Total = %1.1fGb \t Reserved = %1.1fGb \t Allocated = %1.1fGb" % (t,r,a))

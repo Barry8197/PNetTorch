@@ -76,7 +76,7 @@ def interpret(model, x, savedir=''):
     return model_layers_importance
 
 
-def evaluate_interpret_save(model, test_dataset, path):
+def evaluate_interpret_save(model, test_dataset, path, n_classes, target_names):
     """
     Evaluates a model using a DataLoader for the test dataset, interprets feature importances, and saves
     the results including plots of confusion matrix and ROC curve, and prediction probabilities to a specified path.
@@ -101,8 +101,7 @@ def evaluate_interpret_save(model, test_dataset, path):
     test_targets = torch.cat(target_batches, dim=0)
     
     # Getting predictions and probabilities from the model
-    actuals, predictions = get_predictions(model, test_dataset)
-    actuals, probs = get_probabilities(model, test_dataset)
+    actuals, predictions = get_predictions(model.to('cpu'), test_dataset)
 
     # Compute the Confusion Matrix and save it
     cm = plot_confusion_matrix(actuals, predictions)
@@ -110,11 +109,12 @@ def evaluate_interpret_save(model, test_dataset, path):
     cm.savefig(cm_path, bbox_inches='tight')
 
     # Computing AUC-ROC metrics and save the ROC Curve plot
-    auc = roc_auc_score(actuals, probs)
-    fpr, tpr, _ = roc_curve(actuals, probs)
+    actuals, probs = get_probabilities(model.to('cpu'), test_dataset)
+    auc = roc_auc_score(actuals, probs , multi_class='ovr')
     print("AUC Score:", auc)
 
-    roc = plot_roc_curve(fpr, tpr, auc)
+    
+    roc = plot_roc_curve(np.array(actuals), np.array(probs) , n_classes = n_classes , target_names = target_names)
     roc_path = os.path.join(path, 'ROC_Curve.jpeg')
     roc.savefig(roc_path, bbox_inches='tight')
     
