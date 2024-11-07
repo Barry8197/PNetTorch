@@ -52,7 +52,7 @@ class MaskedLinear(nn.Module):
         self.in_features = in_features
         self.out_features = out_features
         factory_kwargs = {'device': device, 'dtype': dtype}
-        self.mask = nn.Parameter(torch.Tensor(mask.T), requires_grad=False)
+        self.mask = nn.Parameter(torch.Tensor(mask.T).bool(), requires_grad=False)
         self.weight = nn.Parameter(torch.empty((out_features, in_features), **factory_kwargs))
         if bias:
             self.bias = nn.Parameter(torch.empty(out_features, **factory_kwargs))
@@ -144,20 +144,24 @@ class PNET(nn.Module):
         self.layers = nn.ModuleList()
         self.skip = nn.ModuleList()
         self.act_layers = nn.ModuleList()
+        self.norm_layers = nn.ModuleList()
         
         if input_layer_mask is None:
             self.layers.append(nn.Linear(in_features=self.input_dim, out_features=gene_masks.shape[0]))
         else:
             self.layers.append(MaskedLinear(input_layer_mask, in_features=self.input_dim, out_features=gene_masks.shape[0]))
         self.act_layers.append(self.activation())
+        self.norm_layers.append(nn.BatchNorm1d(gene_masks.shape[0]))
 
         for i in range(0, len(pathway_masks) + 1):
             if i == 0:
                 self.layers.append(MaskedLinear(gene_masks, in_features=gene_masks.shape[0], out_features=pathway_masks[i].shape[0]))
                 self.skip.append(nn.Linear(in_features=gene_masks.shape[0], out_features=self.output_dim))
+                self.norm_layers.append(nn.BatchNorm1d(pathway_masks[i].shape[0]))
             else:
                 self.layers.append(MaskedLinear(pathway_masks[i-1], in_features=pathway_masks[i-1].shape[0], out_features=pathway_masks[i-1].shape[1]))
                 self.skip.append(nn.Linear(in_features=pathway_masks[i-1].shape[0], out_features=self.output_dim))
+                self.norm_layers.append(nn.BatchNorm1d(pathway_masks[i-1].shape[1]))
                 
             self.act_layers.append(self.activation())
                 
@@ -175,10 +179,10 @@ class PNET(nn.Module):
             torch.Tensor: The output tensor after processing through the PNET.
         """
         y = 0
-        for layer, act, skip in zip(self.layers, self.act_layers, self.skip):
+        for layer, norm, act, skip in zip(self.layers, self.act_layers, self.norm_layers, self.skip):
             x =  layer(x)
-            x =  self.dropout(act(x))
-            y += self.dropout(skip(x))
+            x =  self.dropout(act(norm(x)))
+            y += skip(x)
             
         y = y / len(self.layers)
         
