@@ -4,10 +4,11 @@ import numpy as np
 import pandas as pd
 from os.path import join
 import sys
-sys.path.insert(0 , '.')
-from utils import GMT
+import os
+sys.path.insert(0 , os.path.dirname(__file__))
+from PNetTorch.MAIN.utils import GMT
 
-reactome_base_dir = './paper_data/pathways/Reactome/'
+reactome_base_dir = './../reactome/'
 relations_file_name = 'ReactomePathwaysRelation.txt'
 pathway_names = 'ReactomePathways.txt'
 pathway_genes = 'ReactomePathways.gmt'
