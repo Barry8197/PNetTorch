@@ -3,8 +3,11 @@ import os
 import numpy as np
 import pandas as pd
 import sys
-sys.path.insert(0 , './MAIN/')
+orig_sys_path = sys.path[:]
+dirname = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0 , dirname)
 from train import *
+sys.path = orig_sys_path
 
 def visualize_importances(importances, title="Average Feature Importances"):
     """
