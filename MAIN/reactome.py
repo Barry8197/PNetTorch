@@ -5,10 +5,13 @@ import pandas as pd
 from os.path import join
 import sys
 import os
-sys.path.insert(0 , os.path.dirname(__file__))
-from MAIN.utils import GMT
+orig_sys_path = sys.path[:]
+dirname = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0 , dirname)
+from utils import GMT
+sys.path = orig_sys_path
 
-reactome_base_dir = './reactome/'
+reactome_base_dir = os.path.join(dirname , '..' , 'reactome')
 relations_file_name = 'ReactomePathwaysRelation.txt'
 pathway_names = 'ReactomePathways.txt'
 pathway_genes = 'ReactomePathways.gmt'
