@@ -230,7 +230,7 @@ class PNET(nn.Module):
         for i, level in enumerate(self.layers):
             print(level)
             cond = captum.attr.LayerConductance(self, level)
-            cond_vals = cond.attribute(test_dataset, target=target_class)
+            cond_vals = cond.attribute(test_dataset, target=target_class, internal_batch_size =128)
             cols = self.layer_info[i]
             data_index = getattr(self, 'data_index', np.arange(test_dataset.shape[0]))
 
