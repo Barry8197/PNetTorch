@@ -6,9 +6,9 @@ from os.path import join
 import sys
 import os
 sys.path.insert(0 , os.path.dirname(__file__))
-from PNetTorch.MAIN.utils import GMT
+from MAIN.utils import GMT
 
-reactome_base_dir = './../reactome/'
+reactome_base_dir = './reactome/'
 relations_file_name = 'ReactomePathwaysRelation.txt'
 pathway_names = 'ReactomePathways.txt'
 pathway_genes = 'ReactomePathways.gmt'
