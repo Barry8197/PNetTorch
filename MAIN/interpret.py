@@ -21,7 +21,9 @@ def visualize_importances(importances, title="Average Feature Importances"):
     - matplotlib.figure.Figure: The figure object containing the plot.
     """
     fig = plt.figure(figsize=(12,6))
-    abs(np.sum(importances, axis=0)).sort_values(ascending=False)[:20].plot(kind='bar')
+    importances = (importances - importances.mean().mean())/importances.mean().std()
+    importances = importances.abs().mean(axis=0)
+    importances.sort_values(ascending=False)[:20].plot(kind='bar')
     plt.xticks(rotation=45, ha='right', rotation_mode='anchor')
     plt.title(title)
     plt.show()
