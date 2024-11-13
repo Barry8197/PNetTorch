@@ -28,7 +28,7 @@ def visualize_importances(importances, title="Average Feature Importances"):
     
     return fig
 
-def interpret(model, x, savedir=''):
+def interpret(model, x, savedir='', plot=True):
     """
     This function interprets the model by plotting and optionally saving feature importances
     of features, genes, and pathway levels based on the input data 'x'.
@@ -46,7 +46,7 @@ def interpret(model, x, savedir=''):
     - FileNotFoundError: If the save directory does not exist and saving is attempted.
     """
     # Check if saving the plots is required and possible
-    if os.path.exists(savedir):
+    if os.path.exists(savedir) & plot:
         save_plots = True
     else:
         print('Save Path Not Found - Plots will not be saved')
@@ -57,19 +57,21 @@ def interpret(model, x, savedir=''):
 
     # Calculate and visualize feature importance
     model_layers_importance['Features'] = model.deepLIFT_feature_importance(x)
-    model_layers_importance_fig['Features'] = visualize_importances(
-        model_layers_importance['Features'], title="Average Feature Importances")
+    if plot :
+        model_layers_importance_fig['Features'] = visualize_importances(
+            model_layers_importance['Features'], title="Average Feature Importances")
 
     # Calculate and visualize layer-wise importance
     layer_importance = model.layerwise_importance(x, 0)
     for i, layer in enumerate(layer_importance):
         layer_title = f"Pathway Level {i} Importance" if i > 0 else "Gene Importance"
         model_layers_importance[layer_title] = layer
-        model_layers_importance_fig[layer_title] = visualize_importances(
-            layer, title=f"Average {layer_title}")
+        if plot : 
+            model_layers_importance_fig[layer_title] = visualize_importances(
+                layer, title=f"Average {layer_title}")
 
     # Save the figures if the save directory is valid
-    if save_plots:
+    if save_plots :
         for name, fig in model_layers_importance_fig.items():
             # Ensure filename does not have any spaces and is properly formatted
             filename = name.replace(' ', '_')
