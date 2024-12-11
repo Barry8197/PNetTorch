@@ -3,6 +3,7 @@ import os
 import numpy as np
 import pandas as pd
 import sys
+from scipy.stats import chi2
 orig_sys_path = sys.path[:]
 dirname = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0 , dirname)
@@ -21,8 +22,6 @@ def visualize_importances(importances, title="Average Feature Importances"):
     - matplotlib.figure.Figure: The figure object containing the plot.
     """
     fig = plt.figure(figsize=(12,6))
-    importances = (importances - importances.mean().mean())/importances.mean().std()
-    importances = importances.abs().mean(axis=0)
     importances.sort_values(ascending=False)[:20].plot(kind='bar')
     plt.xticks(rotation=45, ha='right', rotation_mode='anchor')
     plt.title(title)
@@ -30,7 +29,7 @@ def visualize_importances(importances, title="Average Feature Importances"):
     
     return fig
 
-def interpret(model, x, savedir='', plot=True):
+def interpret(model, x, x_pred, savedir='', plot=True):
     """
     This function interprets the model by plotting and optionally saving feature importances
     of features, genes, and pathway levels based on the input data 'x'.
@@ -61,16 +60,16 @@ def interpret(model, x, savedir='', plot=True):
     model_layers_importance['Features'] = model.deepLIFT_feature_importance(x)
     if plot :
         model_layers_importance_fig['Features'] = visualize_importances(
-            model_layers_importance['Features'], title="Average Feature Importances")
+            model_layers_importance['Features'].mean(axis=0), title="Average Feature Importances")
 
     # Calculate and visualize layer-wise importance
-    layer_importance = model.layerwise_importance(x, 0)
+    layer_importance = model.layerwise_importance(x, x_pred)
     for i, layer in enumerate(layer_importance):
         layer_title = f"Pathway Level {i} Importance" if i > 0 else "Gene Importance"
         model_layers_importance[layer_title] = layer
         if plot : 
             model_layers_importance_fig[layer_title] = visualize_importances(
-                layer, title=f"Average {layer_title}")
+                layer.mean(axis=0).abs(), title=f"Average {layer_title}")
 
     # Save the figures if the save directory is valid
     if save_plots :
@@ -137,3 +136,110 @@ def evaluate_interpret_save(model, test_dataset, path, n_classes, target_names):
         filename = name.replace(' ', '_')
         csv_path = os.path.join(path, f'{filename}.csv')
         importance.to_csv(csv_path)
+
+def p_hit(S, r, hits, N_R, i, p):
+    # Ensure i is within the bounds of the sequence
+    if i >= len(r):
+        raise IndexError("Index i is out of the bounds of the ranked scores.")
+
+    # Ensure N_R is not zero to prevent division by zero
+    if N_R == 0:
+        raise ValueError("Sum of absolute values raised to the power of p is zero. Division by zero error.")
+     
+    # Calculate sum for indices j <= i (numerator)
+    numerator = np.sum(np.abs(r[:i][hits[:i]])**p) # min(i+1, len(S)) handles index bounds
+    
+    # Calculate P_hit(S, i)
+    p_hit_value = numerator / N_R
+    
+    return p_hit_value
+    
+def p_miss(S, hits , total_elements, i):
+
+    # Validate if i is within the reasonable range
+    if i > total_elements:
+        raise IndexError("Index i exceeds the total number of elements.")
+    
+    N_H = len(S)  # The number of hits or included elements
+    N_minus_N_H = total_elements - N_H  # The number of elements that are not hits
+    
+    # Handle zero division case
+    if N_minus_N_H == 0:
+        raise ValueError("No elements left outside of S up to index i; (N-N_H) is zero.")
+
+    # Calculate the number of missing elements up to i (not in S, up to i)
+    missing_count = sum(~hits[:i])
+    
+    # Calculate P_miss
+    P_miss = missing_count / N_minus_N_H
+    
+    return P_miss
+    
+def calculate_es(S , r, hits, N_R, p=1, window=50) : 
+    es = 0
+    for i in range(len(S)-1) : 
+        es_tmp = p_hit(S, r, hits, N_R, i , p) - p_miss(S, hits, len(r) ,i)
+        es = es_tmp if np.abs(es_tmp) > es else es
+
+    return es
+
+def permutation_test(gene_scores, gene_list, n_perm=1000):
+    S = np.array(gene_list)
+    r = gene_scores.sort_values(ascending=False)
+
+    r_index = np.array(r.index)
+    r = r.to_numpy()
+    hits = np.isin(r_index , S)
+    # Calculate N_R (denominator of p_hits)
+    p = 1
+    N_R = np.sum(np.abs(r[hits])**p)
+ 
+    real_es_pos = calculate_es(S , r, hits, N_R, p=p)
+    print(f"Enrichment Score for Pos: {real_es_pos}")
+    perm_es_scores = []
+
+    for _ in range(n_perm):
+        hits = np.isin(np.random.permutation(r_index) , S)
+        perm_es = calculate_es(S, r, hits, N_R, p=p)
+        perm_es_scores.append(perm_es)
+    
+    p_value =  np.sum(perm_es_scores > real_es_pos) / (1000 + 1)
+    return real_es_pos, perm_es_scores, p_value
+
+def pnet_model_significance_testing(genes_z_scores, gene_set) : 
+    for i , score in genes_z_scores.iterrows() : 
+        real_es_pos, perm_es_scores, p_value_pos = permutation_test(score, gene_set)
+    
+        print(f'The Observed Effect Size (ES) of genes related to outcome is {real_es_pos} with significance p-value {p_value_pos}')
+
+        # Plotting the permutation ES scores
+        plt.hist(perm_es_scores, bins=30, alpha=0.75, label='Permutation ES')
+        plt.axvline(x=real_es_pos, color='red', label='Observed ES')
+        plt.legend()
+        plt.title('Permutation Test for Gene Set Enrichment')
+        plt.xlabel('Enrichment Score (ES)')
+        plt.ylabel('Frequency')
+        plt.show()
+
+def pnet_significance_testing(model_z_scores) : 
+    feature_significance = {}
+    for layer in model_z_scores.keys() : 
+        z_scores = model_z_scores[layer]
+    
+        # Calculate mean and SE across folds
+        mean_z_scores = z_scores.mean(axis=0)
+        se_z_scores = z_scores.std(axis=0, ddof=1) / np.sqrt(z_scores.shape[0])  # Standard Error of the mean
+        
+        # Calculating the Wald statistics
+        wald_statistics = (mean_z_scores ** 2) / (se_z_scores ** 2)
+        
+        # Assuming chi-squared distribution to find p-values
+        p_values = 1 - chi2.cdf(wald_statistics, df=1)
+        
+        # Result
+        sig_feat = sum(p_values < 0.05/z_scores.shape[0])
+        print(f"{sig_feat} Feautures have p-value < {0.05/z_scores.shape[0]} in Layer {layer}:")
+
+        feature_significance[layer] = {'Features' : z_scores.columns,'p-values' : p_values}
+
+    return feature_significance

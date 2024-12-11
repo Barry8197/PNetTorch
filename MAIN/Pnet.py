@@ -213,7 +213,7 @@ class PNET(nn.Module):
         
         return self.feature_importances
 
-    def layerwise_importance(self, test_dataset, target_class=0):
+    def layerwise_importance(self, test_dataset, test_pred):
         """
         Compute layer-wise importance scores across all layers for given targets.
 
@@ -230,7 +230,11 @@ class PNET(nn.Module):
         for i, level in enumerate(self.layers):
             print(level)
             cond = captum.attr.LayerConductance(self, level)
-            cond_vals = cond.attribute(test_dataset, target=target_class, internal_batch_size =128)
+            cond_vals = torch.zeros((test_pred.shape[0], level.weight.shape[0]))
+            
+            for target_class in test_pred.unique() : 
+                cond_vals[test_pred==target_class] = cond.attribute(test_dataset[test_pred == target_class], target=target_class, internal_batch_size =128)
+                
             cols = self.layer_info[i]
             data_index = getattr(self, 'data_index', np.arange(test_dataset.shape[0]))
 
