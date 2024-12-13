@@ -221,10 +221,10 @@ def pnet_model_significance_testing(genes_z_scores, gene_set) :
         plt.ylabel('Frequency')
         plt.show()
 
-def pnet_significance_testing(model_z_scores) : 
+def pnet_significance_testing(model_z_scores , key='mad') : 
     feature_significance = {}
     for layer in model_z_scores.keys() : 
-        z_scores = model_z_scores[layer]
+        z_scores = model_z_scores[layer][key]
     
         # Calculate mean and SE across folds
         mean_z_scores = z_scores.mean(axis=0)
