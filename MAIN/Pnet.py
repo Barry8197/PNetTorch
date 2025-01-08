@@ -179,12 +179,12 @@ class PNET(nn.Module):
             torch.Tensor: The output tensor after processing through the PNET.
         """
         y = 0
-        for layer, norm, act, skip in zip(self.layers, self.act_layers, self.norm_layers, self.skip):
+        for i , (layer, norm, act, skip) in enumerate(zip(self.layers, self.act_layers, self.norm_layers, self.skip)):
             x =  layer(x)
             x =  self.dropout(act(norm(x)))
             y += skip(x)
             
-        y = y / len(self.layers)
+        y = y / i+1
         
         return y
 
